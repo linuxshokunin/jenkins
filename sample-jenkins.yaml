@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: jenkins-sample1
+spec:
+  initContainers:
+  - name: git-cloner
+    image: jenkins/jenkins:lts
+    securityContext:
+      runAsUser: 0
+    command: ["/bin/bash","-c"]
+    args:
+    - |
+      git clone $(GITREPO) /tmp/repo
+      tar cC /tmp/repo . | tar xC /usr/share/jenkins/ref --no-overwrite-dir
+    volumeMounts:
+    - name: jenkins-ref
+      mountPath: /usr/share/jenkins/ref
+    env:
+    - name: GITREPO
+      value: "https://github.com/linuxshokunin/jenkins-config.git"
+  - name: copy-secrets
+    image: busybox
+    command: ["/bin/sh","-c"]
+    args:
+    - |
+      mkdir /usr/share/jenkins/ref/secrets
+      cp -H /secrets/master.key /secrets/hudson.util.Secret /usr/share/jenkins/ref/secrets/
+    volumeMounts:
+    - name: jenkins-ref
+      mountPath: /usr/share/jenkins/ref
+    - name: secrets
+      mountPath: /secrets
+  - name: plugin-downloader
+    image: jenkins/jenkins:lts
+    securityContext:
+    command: ["/bin/bash","-c"]
+    args:
+    - |
+      cat /plugins.txt | /usr/local/bin/install-plugins.sh
+    volumeMounts:
+    - name: jenkins-ref
+      mountPath: /usr/share/jenkins/ref
+    - name: plugins
+      mountPath: /plugins.txt
+      subPath: plugins
+  containers:
+  - image: jenkins/jenkins:lts
+    name: jenkins-sample
+    volumeMounts:
+    - name: jenkins-ref
+      mountPath: /usr/share/jenkins/ref
+    - name: jenkins-jobs
+      mountPath: /var/jenkins_home/jobs
+    - name: git-pusher
+      mountPath: /usr/local/bin/git-pusher.sh
+      subPath: git-pusher.sh
+    env:
+    - name: REPO
+      value: "https://github.com/linuxshokunin/jenkins-config.git"
+  volumes:
+  - name: jenkins-ref
+    emptyDir: {}
+  - name: jenkins-jobs
+    emptyDir: {}
+  - name: plugins
+    configMap:
+      name: jenkins-config
+      items:
+      - key: plugins.txt
+        path: plugins
+  - name: git-pusher
+    configMap:
+      name: jenkins-config
+      items:
+      - key: git-pusher.sh
+        path: git-pusher.sh
+        mode: 0777
+  - name: secrets
+    secret:
+      secretName: jenkins-secrets
+      defaultMode: 0444
+  restartPolicy: Always
